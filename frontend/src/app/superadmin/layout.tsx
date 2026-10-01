@@ -33,7 +33,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <AdminSidebar userRole={profile?.role || 'admin'} allowedModules={profile?.modules} />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <AdminTopbar userName={profile?.fullName} />
-        <main className="flex-1 overflow-y-auto p-4 md:p-4">
+        <main className="flex-1 overflow-y-auto p-2 md:p-2">
           {children}
         </main>
       </div>

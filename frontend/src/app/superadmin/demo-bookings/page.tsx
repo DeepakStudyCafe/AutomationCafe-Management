@@ -238,7 +238,7 @@ export default function DemoBookingsPage() {
             </div>
             
             <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
+              <table className="w-full text-sm text-left whitespace-nowrap">
                 <thead className="bg-slate-50 border-b text-slate-600 font-medium">
                   <tr>
                     <th className="py-3 px-4">#</th>
