@@ -1,0 +1,550 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import api from '@/lib/api';
+import { 
+  Search, Grid, CheckCircle, XCircle, Clock, AlertTriangle, PlayCircle, Download,
+  RefreshCw, Radio, FileText, CreditCard, Receipt, Copy, Activity, User, ShieldCheck, Monitor, X
+} from 'lucide-react';
+import { format } from 'date-fns';
+import Link from 'next/link';
+
+export default function PaymentLogsExplorer() {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [search, setSearch] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  
+  const [isLive, setIsLive] = useState(false);
+  const [selectedLog, setSelectedLog] = useState<any>(null);
+
+  // Main data query
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['paymentLogs', page, pageSize, searchQuery, statusFilter, fromDate, toDate],
+    queryFn: async () => {
+      const res = await api.get('/api/v1/payments/logs', {
+        params: { page, limit: pageSize, search: searchQuery, status: statusFilter, fromDate, toDate }
+      });
+      return res.data;
+    },
+    refetchInterval: isLive && page === 1 ? 10000 : false,
+    refetchIntervalInBackground: true
+  });
+
+  const { data: summaryData } = useQuery({
+    queryKey: ['paymentLogsSummary'],
+    queryFn: async () => {
+      const res = await api.get('/api/v1/payments/logs/summary');
+      return res.data;
+    },
+    refetchInterval: isLive ? 10000 : false,
+  });
+
+  const logs = data?.data || [];
+  const pagination = data?.pagination;
+  const summary = summaryData?.summary || {};
+
+  const handleReset = () => {
+    setSearch('');
+    setSearchQuery('');
+    setStatusFilter('ALL');
+    setFromDate('');
+    setToDate('');
+    setPage(1);
+  };
+
+  const exportCSV = async () => {
+    try {
+      const qs = new URLSearchParams();
+      if (searchQuery) qs.append('search', searchQuery);
+      if (statusFilter && statusFilter !== 'ALL') qs.append('status', statusFilter);
+      if (fromDate) qs.append('fromDate', fromDate);
+      if (toDate) qs.append('toDate', toDate);
+
+      const res = await api.get(`/api/v1/payments/export?${qs.toString()}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `PaymentLogs_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (e) {
+      console.error('Export failed', e);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  const StatusBadge = ({ status }: { status: string }) => {
+    let color = 'bg-slate-100 text-slate-700';
+    if (status === 'SUCCESS') color = 'bg-green-100 text-green-700 border border-green-200';
+    if (status?.includes('FAIL') || status?.includes('ERROR')) color = 'bg-red-100 text-red-700 border border-red-200';
+    if (status === 'ORDER_CREATED') color = 'bg-purple-100 text-purple-700 border border-purple-200';
+    if (status === 'CHECKOUT_VIEW') color = 'bg-blue-100 text-blue-700 border border-blue-200';
+    if (status === 'MODAL_DISMISSED') color = 'bg-orange-100 text-orange-700 border border-orange-200';
+    
+    return <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase ${color}`}>{status}</span>;
+  };
+
+  const getPaginationNumbers = (currentPage: number, totalPages: number) => {
+    const current = Number(currentPage);
+    const total = Number(totalPages);
+
+    if (total <= 11) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+
+    if (current <= 6) {
+      return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, '...', total];
+    }
+
+    if (current >= total - 5) {
+      return [1, '...', total - 9, total - 8, total - 7, total - 6, total - 5, total - 4, total - 3, total - 2, total - 1, total];
+    }
+
+    return [
+      1, 
+      '...', 
+      current - 4, current - 3, current - 2, current - 1, 
+      current, 
+      current + 1, current + 2, current + 3, current + 4, 
+      '...', 
+      total
+    ];
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            Payment Logs & Checkout Funnel
+          </h2>
+        </div>
+      </div>
+
+      {/* Funnel KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="text-sm font-semibold text-slate-500 mb-1 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-blue-500" /> Total Attempts
+          </div>
+          <div className="text-2xl font-bold text-slate-800">{summary.TotalAttempts || 0}</div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="text-sm font-semibold text-slate-500 mb-1 flex items-center gap-2">
+            <Receipt className="w-4 h-4 text-purple-500" /> Orders Created
+          </div>
+          <div className="text-2xl font-bold text-slate-800">{summary.TotalOrdersCreated || 0}</div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="text-sm font-semibold text-slate-500 mb-1 flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-500" /> Total Success
+          </div>
+          <div className="text-2xl font-bold text-slate-800">{summary.TotalSuccess || 0}</div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="text-sm font-semibold text-slate-500 mb-1 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-orange-500" /> Total Abandoned
+          </div>
+          <div className="text-2xl font-bold text-slate-800">{summary.TotalAbandoned || 0}</div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="text-sm font-semibold text-slate-500 mb-1 flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-red-500" /> Total Failed
+          </div>
+          <div className="text-2xl font-bold text-slate-800">{summary.TotalFailed || 0}</div>
+        </div>
+        <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-4 rounded-xl border border-green-600 shadow-sm text-white">
+          <div className="text-sm font-semibold text-green-100 mb-1 flex items-center gap-2">
+            <CreditCard className="w-4 h-4" /> Total Revenue
+          </div>
+            <div className="text-2xl font-bold">₹{(summary.TotalRevenue || 0).toLocaleString()}</div>
+        </div>
+      </div>
+
+      {/* Filters Toolbar */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col xl:flex-row gap-4 items-center">
+        <div className="relative flex-1 w-full min-w-[250px]">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search by Email, Name, Order ID, Payment ID..."
+            className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { setSearchQuery(search); setPage(1); } }}
+          />
+        </div>
+        
+        <div className="flex flex-wrap md:flex-nowrap items-center gap-3 w-full xl:w-auto">
+
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg bg-white overflow-hidden w-full md:w-auto">
+            <select 
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+              className="outline-none text-sm px-3 py-2 text-slate-700 bg-white min-w-[140px] cursor-pointer"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="SUCCESS">Success</option>
+              <option value="ORDER_CREATED">Order Created</option>
+              <option value="CHECKOUT_VIEW">Checkout View</option>
+              <option value="MODAL_DISMISSED">Modal Dismissed</option>
+              <option value="FAILED">Failed</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-1.5 bg-white w-full md:w-auto">
+            <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">From</span>
+            <input 
+              type="date" 
+              className="outline-none text-slate-600 bg-transparent text-sm min-w-[110px]" 
+              value={fromDate} 
+              onChange={(e) => { setFromDate(e.target.value); setPage(1); }} 
+            />
+            <span className="text-slate-200">|</span>
+            <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">To</span>
+            <input 
+              type="date" 
+              className="outline-none text-slate-600 bg-transparent text-sm min-w-[110px]" 
+              value={toDate} 
+              onChange={(e) => { setToDate(e.target.value); setPage(1); }} 
+            />
+          </div>
+
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <button 
+              onClick={() => { setSearchQuery(search); setPage(1); }}
+              className="flex-1 md:flex-none bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              <Search className="w-4 h-4" /> Filter
+            </button>
+            <button 
+              onClick={handleReset}
+              className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-lg text-sm font-medium transition-colors"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Data Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+        {/* Table Header Controls */}
+        <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap justify-between items-center gap-4">
+          <div className="flex items-center gap-3">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              Checkout & Payment Logs
+            </h3>
+            
+            <span className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1.5 border ${isLive ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+              <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`}></span>
+              {isLive ? 'Live Monitoring' : 'Paused'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button onClick={exportCSV} className="px-3 py-1.5 bg-white border border-green-200 text-green-700 hover:bg-green-50 rounded flex items-center gap-1.5 text-xs font-semibold transition-colors">
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+            
+            <button 
+              onClick={() => setIsLive(!isLive)}
+              className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded flex items-center gap-1.5 text-xs font-semibold transition-colors"
+            >
+              {isLive ? <><Clock className="w-3.5 h-3.5" /> Pause</> : <><PlayCircle className="w-3.5 h-3.5" /> Resume Monitor</>}
+            </button>
+
+            <button 
+              onClick={() => refetch()}
+              className="px-2 py-1.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded transition-colors"
+              title="Refresh Now"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Table Content */}
+        <div className="overflow-x-auto flex-1">
+          <table className="w-full text-sm text-left whitespace-nowrap">
+            <thead className="bg-slate-50 border-b text-slate-600 font-bold text-xs uppercase tracking-wider">
+              <tr>
+                <th className="py-3 px-4 w-20">LOG ID</th>
+                <th className="py-3 px-4">CUSTOMER DETAILS</th>
+                <th className="py-3 px-4">PLAN & AMOUNT</th>
+                <th className="py-3 px-4">GATEWAY INFO</th>
+                <th className="py-3 px-4">STATUS & FUNNEL STEP</th>
+                <th className="py-3 px-4">SOURCE & DEVICE</th>
+                <th className="py-3 px-4">DATE & TIME</th>
+                <th className="py-3 px-4 text-right w-20">ACTION</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isLoading ? (
+                <tr><td colSpan={8} className="py-8 text-center text-slate-500">Loading logs...</td></tr>
+              ) : logs.length === 0 ? (
+                <tr><td colSpan={8} className="py-8 text-center text-slate-500">No logs found.</td></tr>
+              ) : (
+                logs.map((log: any) => (
+                  <tr key={log.LogID} className="hover:bg-slate-50/50 transition-colors bg-white">
+                    <td className="py-3 px-4">
+                      <div className="text-sm font-bold text-slate-600">#{log.LogID}</div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="font-bold text-slate-900 text-sm">{log.UserName || 'Guest Customer'}</div>
+                      <div className="text-[11px] text-slate-500">{log.UserEmail || 'N/A'}</div>
+                      <div className="text-[11px] text-slate-500">{log.UserPhone || 'N/A'}</div>
+                      <div className="text-[10px] text-blue-600 font-medium mt-0.5">{log.UserID ? `User ID: #${log.UserID}` : 'Unregistered'}</div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="font-bold text-slate-800 text-sm">₹{log.Amount ? log.Amount.toLocaleString() : '0'}</div>
+                      <div className="text-[11px] text-slate-500 truncate max-w-[150px]" title={log.PlanName}>{log.PlanName || '-'}</div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="text-xs text-slate-600 font-mono">
+                        <span className="text-slate-400">Order:</span> {log.RazorpayOrderID || 'N/A'}
+                      </div>
+                      <div className="text-xs text-slate-600 font-mono mt-0.5">
+                        <span className="text-slate-400">Payment:</span> {log.RazorpayPaymentID || 'N/A'}
+                      </div>
+                      {(log.CouponCode || log.ReferralCode) && (
+                         <div className="text-[10px] text-slate-500 mt-1">
+                           {log.CouponCode && <span className="bg-blue-50 text-blue-600 px-1 rounded mr-1 border border-blue-100">Coupon: {log.CouponCode}</span>}
+                           {log.ReferralCode && <span className="bg-purple-50 text-purple-600 px-1 rounded border border-purple-100">Ref: {log.ReferralCode}</span>}
+                         </div>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="mb-1"><StatusBadge status={log.Status || 'UNKNOWN'} /></div>
+                      <div className="text-[11px] text-slate-600 truncate max-w-[180px]" title={log.Step}>Step: {log.Step || 'N/A'}</div>
+                      {log.FailureReason && (
+                        <div className="text-[10px] text-red-500 truncate max-w-[180px] mt-0.5" title={log.FailureReason}>{log.FailureReason}</div>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="text-[11px] text-slate-600 truncate max-w-[150px]" title={log.SourcePage}>{log.SourcePage || 'N/A'}</div>
+                      <div className="text-[10px] font-mono text-slate-400 mt-0.5">{log.IpAddress || 'Unknown IP'}</div>
+                      <div className="text-[10px] text-slate-400 truncate max-w-[150px] mt-0.5" title={log.UserAgent}>{log.UserAgent || 'Unknown Agent'}</div>
+                    </td>
+                    <td className="py-3 px-4 text-xs text-slate-600">
+                      {format(new Date(log.CreatedAt), 'MMM dd, yyyy')}
+                      <div className="text-slate-400 mt-0.5">{format(new Date(log.CreatedAt), 'HH:mm:ss a')}</div>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button 
+                        onClick={() => setSelectedLog(log)}
+                        className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors"
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Footer */}
+        {pagination && (
+          <div className="border-t px-6 py-4 bg-slate-50 flex items-center justify-between text-sm text-slate-500">
+            <div>
+              Showing <span className="font-medium text-slate-700">{(page - 1) * pageSize + (pagination.totalRecords > 0 ? 1 : 0)}</span> to <span className="font-medium text-slate-700">{Math.min(page * pageSize, pagination.totalRecords)}</span> of <span className="font-medium text-slate-700">{pagination.totalRecords}</span> logs
+            </div>
+            
+            {pagination.totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => setPage(p => Math.max(1, p - 1))} 
+                  disabled={page === 1} 
+                  className="px-3 py-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 font-medium transition-colors disabled:cursor-not-allowed"
+                >
+                  Prev
+                </button>
+                
+                <div className="flex items-center gap-1 mx-2">
+                  {getPaginationNumbers(page, pagination.totalPages).map((pageNum, idx) => (
+                    pageNum === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
+                    ) : (
+                      <button
+                        key={pageNum}
+                        onClick={() => setPage(pageNum as number)}
+                        className={`min-w-[32px] h-8 rounded-md flex items-center justify-center text-sm font-medium transition-colors ${
+                          page === pageNum 
+                            ? 'bg-blue-600 text-white shadow-sm border border-blue-600' 
+                            : 'bg-transparent text-slate-600 hover:bg-slate-100 border border-transparent'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    )
+                  ))}
+                </div>
+
+                <button 
+                  onClick={() => setPage(p => Math.min(pagination.totalPages, p + 1))} 
+                  disabled={page >= pagination.totalPages} 
+                  className="px-3 py-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 font-medium transition-colors disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* View Log Modal */}
+      {selectedLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-slate-50 rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-700 bg-slate-800 flex justify-between items-center text-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-600 rounded-full w-10 h-10 flex items-center justify-center shrink-0">
+                  <CreditCard className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold tracking-tight">Payment Transaction Dossier</h3>
+                  <p className="text-sm text-slate-400 font-medium">Log #{selectedLog.LogID || selectedLog.PaymentID || '150'} &middot; Razorpay Checkout</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedLog(null)} className="text-slate-400 hover:text-white transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 overflow-y-auto space-y-6">
+              {/* Top Section */}
+              <div className="bg-white p-5 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm">
+                <div>
+                  <div className="mb-2"><StatusBadge status={selectedLog.Status} /></div>
+                  <div className="text-sm text-slate-500 font-medium">Funnel Step: <span className="text-slate-700">{selectedLog.Step || 'Unknown'}</span></div>
+                </div>
+                <div className="text-right">
+                  <div className="text-3xl font-bold text-slate-800">₹{(selectedLog.Amount || 0).toLocaleString()}</div>
+                  <div className="text-sm text-slate-500 font-medium mt-1">{selectedLog.PlanName || 'Automation Cafe Annual Plan'}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Customer Profile */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <h4 className="flex items-center gap-2 text-slate-800 font-bold text-base">
+                    <User className="w-5 h-5 text-blue-600" /> Customer Profile
+                  </h4>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-xs text-slate-500 mb-0.5">Full Name</div>
+                      <div className="text-sm font-bold text-slate-800">{selectedLog.UserName || 'N/A'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 mb-0.5">Email Address</div>
+                      <div className="text-sm font-bold font-mono text-slate-800">{selectedLog.UserEmail || 'N/A'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 mb-0.5">Phone Number</div>
+                      <div className="text-sm font-bold text-slate-800">{selectedLog.UserPhone || 'N/A'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 mb-0.5">User Account ID</div>
+                      <div className="text-sm font-bold text-blue-600">#{selectedLog.UserID || 'N/A'}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Gateway Identifiers */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <h4 className="flex items-center gap-2 text-slate-800 font-bold text-base">
+                    <ShieldCheck className="w-5 h-5 text-emerald-600" /> Gateway Identifiers
+                  </h4>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="text-xs text-slate-500 mb-0.5">Razorpay Order ID</div>
+                      {selectedLog.RazorpayOrderID ? (
+                        <div className="text-sm font-mono bg-slate-50 px-2 py-1 rounded text-slate-700 border border-slate-100 inline-block">{selectedLog.RazorpayOrderID}</div>
+                      ) : (
+                        <div className="text-sm font-mono bg-slate-50 px-3 py-1 rounded text-slate-400 border border-slate-100 inline-block">-</div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 mb-0.5">Razorpay Payment ID</div>
+                      {selectedLog.RazorpayPaymentID ? (
+                        <div className="text-sm font-mono bg-slate-50 px-2 py-1 rounded text-slate-700 border border-slate-100 inline-block">{selectedLog.RazorpayPaymentID}</div>
+                      ) : (
+                        <div className="text-sm font-mono bg-slate-50 px-3 py-1 rounded text-slate-400 border border-slate-100 inline-block">-</div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 mb-0.5">Coupon & Referral</div>
+                      <div className="text-sm font-bold text-slate-800">
+                        {selectedLog.CouponCode || 'None'} {selectedLog.ReferralCode ? `(+${selectedLog.ReferralCode})` : ''}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500 mb-0.5">Created / Updated</div>
+                      <div className="text-sm font-mono text-slate-500">
+                        {selectedLog.CreatedAt ? format(new Date(selectedLog.CreatedAt), 'M/d/yyyy, h:mm:ss a') : 'N/A'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Session & Device Environment */}
+              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                <h4 className="flex items-center gap-2 text-slate-800 font-bold text-base">
+                  <Monitor className="w-5 h-5 text-cyan-500" /> Session & Device Environment
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-xs text-slate-500 mb-0.5">Source Page:</div>
+                    <div className="text-sm font-bold text-slate-800">{selectedLog.SourcePage || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500 mb-0.5">IP Address:</div>
+                    <div className="text-sm font-bold text-slate-800 font-mono">{selectedLog.IpAddress || '127.0.0.1'}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <div className="text-xs text-slate-500 mb-0.5">User Agent:</div>
+                    <div className="text-xs font-mono text-slate-500 break-all">{selectedLog.UserAgent || 'N/A'}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-200 bg-white flex justify-between items-center rounded-b-xl shrink-0">
+              <div className="flex gap-2">
+                <Link href={`/superadmin/tracking-logs?userEmail=${encodeURIComponent(selectedLog.UserEmail || selectedLog.Email || '')}`} className="flex items-center gap-2 px-3 py-1.5 border border-blue-200 text-blue-600 bg-white hover:bg-blue-50 rounded-md text-sm font-medium transition-colors">
+                  <Activity className="w-4 h-4" /> User Telemetry
+                </Link>
+                <Link href={selectedLog.UserID ? `/superadmin/users/${selectedLog.UserID}` : '#'} className={`flex items-center gap-2 px-3 py-1.5 border border-slate-300 text-slate-600 bg-white rounded-md text-sm font-medium transition-colors ${selectedLog.UserID ? 'hover:bg-slate-50' : 'opacity-50 cursor-not-allowed'}`}>
+                  <User className="w-4 h-4" /> User Account
+                </Link>
+              </div>
+              <button 
+                onClick={() => setSelectedLog(null)}
+                className="px-6 py-2 bg-slate-600 text-white rounded-md text-sm font-medium hover:bg-slate-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
